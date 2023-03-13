@@ -5,7 +5,9 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import BinaryIO, List, Optional, Union, Dict, Tuple
-from .util import format_toc, get_branch, get_path_to_docs
+from sphinx.application import Sphinx
+
+from .util import format_toc, get_path_to_docs
 
 
 if sys.version_info < (3, 9):
@@ -215,8 +217,7 @@ class ROCmDocs:
                 f"Expected input toc file {toc_in_path} to exist and be"
                 " readable."
             )
-        format_toc(self._docs_folder)
-        url, branch, edit_page = get_branch(self._docs_folder)
+        url, branch = format_toc(self._docs_folder)
 
         self.external_toc_path = "./.sphinx/_toc.yml"
         self.external_toc_exclude_missing = False
@@ -257,7 +258,7 @@ class ROCmDocs:
         self.html_extra_path = ["_images"]
         self.html_theme_options = {
             "home_page_in_toc": False,
-            "use_edit_page_button": edit_page,
+            "use_edit_page_button": True,
             "repository_url": url,
             "repository_branch": branch,
             "path_to_docs": get_path_to_docs(),

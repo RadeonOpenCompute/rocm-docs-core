@@ -1,13 +1,11 @@
 """Utilities for rocm-docs-core."""
-import functools
 import os
 import re
-from typing import Optional, Tuple, Union
+from typing import Optional, Union
 from pathlib import Path
 from git import Remote, RemoteReference
 from git.repo import Repo
-import github
-from github.GithubException import UnknownObjectException
+from github import Github
 
 
 def get_path_to_docs(
@@ -27,10 +25,7 @@ def get_path_to_docs(
     return os.path.relpath(str(conf_path), repo.working_dir)
 
 
-@functools.lru_cache
-def get_branch(
-    repo_path: Union[str, os.PathLike, None] = None,
-) -> Tuple[str, str, bool]:
+def get_branch(repo_path: Union[str, os.PathLike, None] = None):
     """Get the branch whose tip is checked out, even if detached."""
     git_url = re.compile(r"git@(\w+(?:\.\w+)+):(.*)\.git")
     if repo_path is None:
@@ -42,36 +37,19 @@ def get_branch(
     if os.environ.get("READTHEDOCS", ""):
         gh_token = os.environ.get("TOKEN", "")
         if gh_token:
-            gh_inst = github.Github(gh_token)
+            gh_inst = Github(gh_token)
         else:
-            gh_inst = github.Github()
+            gh_inst = Github()
         remote_url = repo.remotes.origin.url
         build_type = os.environ["READTHEDOCS_VERSION_TYPE"]
-        if build_type in ("branch", "tag"):
-            url = re.sub(
-                        r"(?:.*://)?(.*\.com)[/:](.*)\.git", r"\1/\2", remote_url
-                    )
-            return url, os.environ["READTHEDOCS_VERSION"], True
+        if build_type == "branch" or build_type == "tag":
+            return remote_url, os.environ["READTHEDOCS_VERSION"]
         if build_type == "external":
-            repo_fqn = re.sub(r".*\.com[/:](.*)\.git", r"\1", remote_url)
-            print("Repository URL: " + repo_fqn)
-            try:
-                pull = gh_inst.get_repo(repo_fqn).get_pull(
-                    int(os.environ["READTHEDOCS_VERSION"])
-                )
-                return pull.head.repo.html_url, pull.head.ref, True
-            except UnknownObjectException as err:
-                if err.data["message"] == "Not Found":
-                    # Possibly a private repository that we're not
-                    # authenticated for, fallback
-                    url = re.sub(
-                        r"(?:.*://)?(.*\.com)[/:](.*)\.git", r"\1/\2", remote_url
-                    )
-                    return (
-                        url,
-                        "external-" + os.environ["READTHEDOCS_VERSION"],
-                        False,
-                    )
+            url = re.sub(r".*\.com[/:](.*)\.git", r"\1", remote_url)
+            print("Repository URL: " + url)
+            g_repo = gh_inst.get_repo(url)
+            pull = g_repo.get_pull(int(os.environ["READTHEDOCS_VERSION"]))
+            return pull.head.repo.html_url, pull.head.ref
         # if build type is unknown try the usual strategy
     for branch in repo.branches:
         if branch.commit == repo.head.commit:
@@ -79,14 +57,14 @@ def get_branch(
             if tracking is not None:
                 remote_url = repo.remotes[tracking.remote_name].url
                 remote_url = git_url.sub(r"http://\1/\2", remote_url)
-                return remote_url, tracking.remote_head, True
+                return remote_url, tracking.remote_head
     for remote in repo.remotes:
         remote: Remote
         for ref in remote.refs:
             ref: RemoteReference
             if ref.commit == repo.head.commit:
                 remote_url = git_url.sub(r"http://\1/\2", remote.url)
-                return remote_url, ref.remote_head, True
+                return remote_url, ref.remote_head
     raise TypeError("Could not find the commit in the git repo.")
 
 
@@ -107,7 +85,7 @@ def format_toc(
     output_name = "./.sphinx/_toc.yml" if output_name is None else output_name
     at_start = True
 
-    url, branch, _ = get_branch(repo_path)
+    url, branch = get_branch(repo_path)
     with open(toc_path / input_name, "r", encoding="utf-8") as toc_in:
         with open(toc_path / output_name, "w", encoding="utf-8") as toc_out:
             for line in toc_in.readlines():
@@ -115,6 +93,7 @@ def format_toc(
                     continue
                 at_start = False
                 toc_out.write(line.format(branch=branch, url=url))
+    return url, branch
 
 
 if __name__ == "__main__":
